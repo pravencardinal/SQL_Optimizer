@@ -1,0 +1,11 @@
+SELECT
+  table_catalog AS project_id,
+  table_schema AS dataset_id,
+  table_name,
+  row_count,
+  size_bytes,
+  ROUND(size_bytes / POW(1024, 3), 2) AS size_gb
+FROM `region-us.INFORMATION_SCHEMA.TABLE_STORAGE`
+WHERE table_catalog = 'edr-med-cmrclanlytc-pr'
+ORDER BY size_bytes DESC
+LIMIT 20;
