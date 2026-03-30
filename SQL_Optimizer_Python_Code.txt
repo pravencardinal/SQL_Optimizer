@@ -1,0 +1,34 @@
+from google.cloud import bigquery
+
+client = bigquery.Client()
+
+project_id = "edr-med-cmrclanlytc-pr-cah"
+
+datasets = list(client.list_datasets(project_id))
+
+all_tables = []
+
+for dataset in datasets:
+    dataset_id = dataset.dataset_id
+
+    query = f"""
+    SELECT
+      '{dataset_id}' AS dataset_id,
+      table_id AS table_name,
+      row_count,
+      size_bytes
+    FROM `{project_id}.{dataset_id}.__TABLES__`
+    """
+
+    try:
+        df = client.query(query).to_dataframe()
+        all_tables.append(df)
+    except Exception as e:
+        print(f"Skipping {dataset_id}: {e}")
+
+import pandas as pd
+
+final_df = pd.concat(all_tables)
+top_10 = final_df.sort_values("size_bytes", ascending=False).head(10)
+
+print(top_10)
