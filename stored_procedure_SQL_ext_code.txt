@@ -1,0 +1,124 @@
+import pandas as pd
+import re
+
+# ===============================
+# 1. Load stored procedure file
+# ===============================
+file_path = "stored_procedure_clarivate.txt"
+
+with open(file_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+# ===============================
+# 2. Extract project_name & creation_date
+# ===============================
+project_match = re.search(r"project[_ ]?name\s*[:=]\s*(.*)", content, re.IGNORECASE)
+date_match = re.search(r"creation[_ ]?date\s*[:=]\s*(.*)", content, re.IGNORECASE)
+
+project_name = project_match.group(1).strip() if project_match else "unknown_project"
+creation_date = date_match.group(1).strip() if date_match else "unknown_date"
+
+# ===============================
+# 3. Clean comments (IMPORTANT)
+# ===============================
+# Remove single-line comments
+content_clean = re.sub(r"--.*", "", content)
+
+# Remove multi-line comments
+content_clean = re.sub(r"/\*.*?\*/", "", content_clean, flags=re.DOTALL)
+
+# ===============================
+# 4. Extract SQL statements safely
+# ===============================
+# Split ONLY on semicolon that ends a statement
+raw_queries = re.split(r";", content_clean)
+
+queries = []
+
+for q in raw_queries:
+    q_clean = q.strip()
+
+    # Keep only meaningful SQL queries
+    if len(q_clean) > 50 and re.search(r"\b(select|insert|create|with)\b", q_clean, re.IGNORECASE):
+        queries.append(q_clean)
+
+# ===============================
+# 5. Create DataFrame
+# ===============================
+df = pd.DataFrame({
+    "project_name": [project_name] * len(queries),
+    "creation_date": [creation_date] * len(queries),
+    "query": queries
+})
+
+# ===============================
+# 6. Complexity patterns
+# ===============================
+COMPLEX_SQL_PATTERNS = [
+    r"\bjoin\b",
+    r"\bgroup\s+by\b",
+    r"\bhaving\b",
+    r"\bwith\b",
+    r"\bwindow\b",
+    r"\bover\s*\(",
+    r"\bcase\s+when\b",
+    r"\bexists\b",
+    r"\bunion\b",
+    r"\bunnest\b",
+    r"\barray\b",
+    r"\bstruct\b"
+]
+
+# ===============================
+# 7. Helper functions
+# ===============================
+def count_sql_keywords(query: str) -> int:
+    query_lower = query.lower()
+    return sum(bool(re.search(pattern, query_lower)) for pattern in COMPLEX_SQL_PATTERNS)
+
+def has_subquery(query: str) -> bool:
+    return query.lower().count("select") > 1
+
+def count_tables(query: str) -> int:
+    return len(re.findall(r"\bfrom\b|\bjoin\b", query.lower()))
+
+# ===============================
+# 8. Complexity score
+# ===============================
+def compute_complexity_score(query: str) -> int:
+    score = 0
+
+    if len(query) > 200:
+        score += 1
+
+    score += count_sql_keywords(query)
+
+    if has_subquery(query):
+        score += 2
+
+    table_count = count_tables(query)
+    if table_count >= 2:
+        score += 1
+    if table_count >= 4:
+        score += 1
+
+    return score
+
+# ===============================
+# 9. Apply scoring
+# ===============================
+df["query_length"] = df["query"].str.len()
+df["complexity_score"] = df["query"].apply(compute_complexity_score)
+
+# ===============================
+# 10. Sort by complexity
+# ===============================
+df = df.sort_values(by="complexity_score", ascending=False).reset_index(drop=True)
+
+# ===============================
+# 11. Save output
+# ===============================
+df.to_json("stored_proc_queries_ranked.json", orient="records", indent=4)
+
+print(f"✅ Total queries extracted: {len(df)}")
+print("✅ Queries ranked successfully!")
